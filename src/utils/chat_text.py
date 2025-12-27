@@ -21,15 +21,12 @@ def render_reactions(reactions: List[Reaction]) -> str:
     )
 
 
-def chat2text(history: List[Message], opt_out_map: dict[str, str]) -> str:
+def chat2text(history: List[Message]) -> str:
     lines = []
     for message in history:
         sender_jid = parse_jid(message.sender_jid)
         sender_user = sender_jid.user
-        if sender_user in opt_out_map:
-            sender_display = opt_out_map[sender_user]
-        else:
-            sender_display = f"@{sender_user}"
+        sender_display = f"@{sender_user}"
 
         reaction_text = render_reactions(message.reactions)
         if reaction_text:

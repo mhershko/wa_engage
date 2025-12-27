@@ -17,7 +17,6 @@ from config import Settings
 from models import Group, Message
 from services.prompt_manager import prompt_manager
 from utils.chat_text import chat2text
-from utils.opt_out import get_opt_out_map
 from whatsapp import WhatsAppClient, SendMessageRequest
 
 logger = logging.getLogger(__name__)
@@ -39,11 +38,7 @@ async def summarize(
         output_type=str,
     )
 
-    # Get opt-out map for all senders in the history
-    all_jids = {m.sender_jid for m in messages}
-    opt_out_map = await get_opt_out_map(session, list(all_jids))
-
-    return await agent.run(chat2text(messages, opt_out_map))
+    return await agent.run(chat2text(messages))
 
 
 async def summarize_and_send_to_group(
