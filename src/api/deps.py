@@ -4,8 +4,8 @@ from fastapi import Depends, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from handler import MessageHandler
+from jimmy.notion_client import NotionClient
 from whatsapp import WhatsAppClient
-from voyageai.client_async import AsyncClient
 from config import Settings, get_settings
 
 
@@ -25,15 +25,14 @@ def get_whatsapp(request: Request) -> WhatsAppClient:
     return request.app.state.whatsapp
 
 
-def get_text_embebedding(request: Request) -> AsyncClient:
-    assert request.app.state.embedding_client, "text embedding not initialized"
-    return request.app.state.embedding_client
+def get_notion(request: Request) -> NotionClient | None:
+    return getattr(request.app.state, "notion_client", None)
 
 
 async def get_handler(
     session: Annotated[AsyncSession, Depends(get_db_async_session)],
     whatsapp: Annotated[WhatsAppClient, Depends(get_whatsapp)],
-    embedding_client: Annotated[AsyncClient, Depends(get_text_embebedding)],
     settings: Annotated[Settings, Depends(get_settings)],
+    notion: Annotated[NotionClient | None, Depends(get_notion)],
 ) -> MessageHandler:
-    return MessageHandler(session, whatsapp, embedding_client, settings)
+    return MessageHandler(session, whatsapp, settings, notion)

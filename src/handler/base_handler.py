@@ -1,7 +1,6 @@
 import logging
 
 from sqlmodel.ext.asyncio.session import AsyncSession
-from voyageai.client_async import AsyncClient
 
 from models import (
     WhatsAppWebhookPayload,
@@ -25,11 +24,9 @@ class BaseHandler:
         self,
         session: AsyncSession,
         whatsapp: WhatsAppClient,
-        embedding_client: AsyncClient,
     ):
         self.session = session
         self.whatsapp = whatsapp
-        self.embedding_client = embedding_client
 
     async def store_message(
         self,

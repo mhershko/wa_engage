@@ -8,18 +8,18 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 import logging
 import logfire
 
-from api import status, summarize_and_send_to_group_api, webhook
+from api import status, webhook, jimmy_webhook
 import models  # noqa
 from config import get_settings
+from jimmy.notion_client import NotionClient
+from jimmy.reminders import ReminderScheduler
 from whatsapp import WhatsAppClient
 from whatsapp.init_groups import gather_groups
-from voyageai.client_async import AsyncClient
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    # Create and configure logger
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -45,7 +45,8 @@ async def lifespan(app: FastAPI):
         pool_recycle=600,
         future=True,
     )
-    logfire.instrument_sqlalchemy(engine)
+    if settings.logfire_token:
+        logfire.instrument_sqlalchemy(engine)
     async_session = async_sessionmaker(
         engine, expire_on_commit=False, class_=AsyncSession
     )
@@ -54,28 +55,43 @@ async def lifespan(app: FastAPI):
 
     app.state.db_engine = engine
     app.state.async_session = async_session
-    app.state.embedding_client = AsyncClient(
-        api_key=settings.voyage_api_key, max_retries=settings.voyage_max_retries
+
+    # --- Jimmy bot initialization ---
+    reminder_scheduler: ReminderScheduler | None = None
+    notion = NotionClient(api_key=settings.notion_api_key)
+    app.state.notion_client = notion
+
+    reminder_scheduler = ReminderScheduler(
+        settings=settings,
+        notion=notion,
+        whatsapp=app.state.whatsapp,
+        session_factory=async_session,
     )
+    reminder_scheduler.start()
+
     try:
         yield
     finally:
+        if reminder_scheduler:
+            await reminder_scheduler.stop()
+        if app.state.notion_client:
+            await app.state.notion_client.close()
         await engine.dispose()
 
 
 # Initialize FastAPI app
-app = FastAPI(title="Webhook API", lifespan=lifespan)
+app = FastAPI(title="Jimmy Bot API", lifespan=lifespan)
 
-logfire.configure()
-logfire.instrument_pydantic_ai()
-logfire.instrument_fastapi(app)
-logfire.instrument_httpx(capture_all=True)
-logfire.instrument_system_metrics()
-
+if get_settings().logfire_token:
+    logfire.configure()
+    logfire.instrument_pydantic_ai()
+    logfire.instrument_fastapi(app)
+    logfire.instrument_httpx(capture_all=True)
+    logfire.instrument_system_metrics()
 
 app.include_router(webhook.router)
 app.include_router(status.router)
-app.include_router(summarize_and_send_to_group_api.router)
+app.include_router(jimmy_webhook.router)
 
 if __name__ == "__main__":
     import uvicorn

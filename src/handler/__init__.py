@@ -3,9 +3,11 @@ import logging
 
 from cachetools import TTLCache
 from sqlmodel.ext.asyncio.session import AsyncSession
-from voyageai.client_async import AsyncClient
 
 from config import Settings
+from jimmy.brain import JimmyBrain
+from jimmy.handler import JimmyHandler
+from jimmy.notion_client import NotionClient
 from models import (
     WhatsAppWebhookPayload,
 )
@@ -25,58 +27,64 @@ class MessageHandler(BaseHandler):
         self,
         session: AsyncSession,
         whatsapp: WhatsAppClient,
-        embedding_client: AsyncClient,
         settings: Settings,
+        notion: NotionClient | None = None,
     ):
         self.settings = settings
-        super().__init__(session, whatsapp, embedding_client)
+        self._notion = notion
+        super().__init__(session, whatsapp)
 
     async def __call__(self, payload: WhatsAppWebhookPayload):
         message = await self.store_message(payload)
 
-        # ignore messages that don't exist or don't have text
         if not message or not message.text:
             return
 
-        # Ignore messages sent by the bot itself
         my_jid = await self.whatsapp.get_my_jid()
         if message.sender_jid == my_jid.normalize_str():
             return
 
-        if message.sender_jid.endswith("@lid"):
-            logging.info(
-                f"Received message from {message.sender_jid}: {payload.model_dump_json()}"
-            )
-
-        # direct message - simple autoreply if enabled
-        if message and not message.group:
-            if self.settings.dm_autoreply_enabled:
-                await self.send_message(
-                    message.sender_jid,
-                    self.settings.dm_autoreply_message,
-                    message.message_id,
-                )
-            return
-
-        # In-memory dedupe: if this message is already being processed/recently processed, skip
-        if message and message.message_id:
+        # In-memory dedupe (must run before any handling)
+        if message.message_id:
             async with _processing_lock:
                 if message.message_id in _processing_cache:
-                    logging.info(
-                        f"Message {message.message_id} already in processing cache; skipping."
-                    )
                     return
                 _processing_cache[message.message_id] = True
 
-        # ignore messages from unmanaged groups
-        if message and message.group and not message.group.managed:
+        # --- Jimmy bot: handle DMs ---
+        if message and not message.group:
+            if self._notion:
+                await self._handle_jimmy_dm(message)
             return
 
-        # Bot is mentioned - simple response
-        mentioned = message.has_mentioned(my_jid)
-        if mentioned:
-            await self.send_message(
-                message.chat_jid,
-                "I'm tracking messages and reactions for monthly activity reports. No action needed! 📊",
-            )
-            return
+        # --- Jimmy bot: handle group messages (admin commands) ---
+        if self._notion and message and message.group and message.text:
+            jimmy = self._build_jimmy()
+            try:
+                await jimmy.handle_group_message(
+                    message.chat_jid, message.sender_jid, message.text
+                )
+            except Exception:
+                logger.exception("Jimmy group handler error")
+
+    # ------------------------------------------------------------------
+    # Jimmy helpers
+    # ------------------------------------------------------------------
+
+    def _build_jimmy(self) -> JimmyHandler:
+        assert self._notion is not None
+        brain = JimmyBrain(self.settings, self._notion)
+        return JimmyHandler(
+            session=self.session,
+            whatsapp=self.whatsapp,
+            settings=self.settings,
+            notion=self._notion,
+            brain=brain,
+        )
+
+    async def _handle_jimmy_dm(self, message: Message) -> None:
+        jimmy = self._build_jimmy()
+        try:
+            await jimmy.handle_dm(message.sender_jid, message.text or "")
+        except Exception:
+            logger.exception("Jimmy DM handler error for %s", message.sender_jid)
