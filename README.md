@@ -205,6 +205,8 @@ The `check` command runs formatting first, then executes linting, type checking,
 
 ## Architecture
 
+For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 The project consists of several key components:
 
 - FastAPI backend for webhook handling
