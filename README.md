@@ -201,6 +201,16 @@ The `check` command runs formatting first, then executes linting, type checking,
 - Message handler: `src/handler/__init__.py`
 - Database models: `src/models/`
 
+### Jimmy Admin Review Commands
+
+For admin validation of Jimmy answers in the admin WhatsApp group:
+
+- `/review_ok <review_id>` - mark a specific Jimmy answer as approved.
+- `/review_fix <review_id> <text>` - provide corrected answer text, send it back
+  to the leader, and persist the correction for future retrieval.
+- `/log_mode debug` - send leader Q&A traces (with `Review ID`) to admin group.
+- `/log_mode unclear_only` - send only unclear/escalated items.
+
 ---
 
 ## Architecture

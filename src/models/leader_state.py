@@ -26,6 +26,7 @@ class LeaderState(SQLModel, table=True):
     group_id: Optional[str] = Field(default=None, max_length=255)
     group_name: Optional[str] = Field(default=None, max_length=255)
     group_approved: bool = Field(default=False)
+    preferred_gender: Optional[str] = Field(default=None, max_length=16)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),

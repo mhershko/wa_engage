@@ -9,7 +9,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from api.deps import get_db_async_session, get_whatsapp, get_notion
+from api.deps import get_db_async_session, get_whatsapp, get_notion, get_session_factory
 from config import Settings, get_settings
 from jimmy.brain import JimmyBrain
 from jimmy.handler import JimmyHandler
@@ -33,12 +33,13 @@ async def group_add(
     whatsapp: Annotated[WhatsAppClient, Depends(get_whatsapp)],
     settings: Annotated[Settings, Depends(get_settings)],
     notion: Annotated[NotionClient | None, Depends(get_notion)],
+    session_factory: Annotated[object, Depends(get_session_factory)] = None,
 ) -> str:
     """Handle the bot being added to a new WhatsApp group."""
     if not notion:
         return "notion client not initialized"
 
-    brain = JimmyBrain(settings, notion)
+    brain = JimmyBrain(settings, notion, session_factory=session_factory)
     jimmy = JimmyHandler(
         session=session,
         whatsapp=whatsapp,

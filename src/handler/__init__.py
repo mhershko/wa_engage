@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Any
 
 from cachetools import TTLCache
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -29,9 +30,11 @@ class MessageHandler(BaseHandler):
         whatsapp: WhatsAppClient,
         settings: Settings,
         notion: NotionClient | None = None,
+        session_factory: Any | None = None,
     ):
         self.settings = settings
         self._notion = notion
+        self._session_factory = session_factory
         super().__init__(session, whatsapp)
 
     async def __call__(self, payload: WhatsAppWebhookPayload):
@@ -73,7 +76,11 @@ class MessageHandler(BaseHandler):
 
     def _build_jimmy(self) -> JimmyHandler:
         assert self._notion is not None
-        brain = JimmyBrain(self.settings, self._notion)
+        brain = JimmyBrain(
+            self.settings,
+            self._notion,
+            session_factory=self._session_factory,
+        )
         return JimmyHandler(
             session=self.session,
             whatsapp=self.whatsapp,

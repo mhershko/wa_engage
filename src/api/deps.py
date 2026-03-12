@@ -29,10 +29,15 @@ def get_notion(request: Request) -> NotionClient | None:
     return getattr(request.app.state, "notion_client", None)
 
 
+def get_session_factory(request: Request):
+    return getattr(request.app.state, "async_session", None)
+
+
 async def get_handler(
     session: Annotated[AsyncSession, Depends(get_db_async_session)],
     whatsapp: Annotated[WhatsAppClient, Depends(get_whatsapp)],
     settings: Annotated[Settings, Depends(get_settings)],
     notion: Annotated[NotionClient | None, Depends(get_notion)],
+    session_factory: Annotated[object, Depends(get_session_factory)] = None,
 ) -> MessageHandler:
-    return MessageHandler(session, whatsapp, settings, notion)
+    return MessageHandler(session, whatsapp, settings, notion, session_factory=session_factory)

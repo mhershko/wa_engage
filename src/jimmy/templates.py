@@ -92,6 +92,9 @@ def welcome_message(leader: LeaderRecord) -> str:
     parts.append(
         "\nאני כאן כדי לעזור בשאלות אדמיניסטרטיביות, תזכורות וטמפלטים."
     )
+    parts.append(
+        "\nשקיפות חשובה: השאלות שלך והתשובות שלי גלויות לצוות האדמין."
+    )
 
     if leader.has_group:
         parts.append(
@@ -161,6 +164,26 @@ def unknown_intent_clarification(leader: LeaderRecord) -> str:
     return (
         f"אני לא בטוח שהבנתי – {g['at']} {g['shoel']} על לו״ז / שלבים בתוכנית,\n"
         "או יותר על הדינמיקה של הקבוצה?"
+    )
+
+
+def long_processing_notice(
+    leader: LeaderRecord, leader_gender: str | None = None
+) -> str:
+    if leader_gender == "masculine":
+        g = {
+            "at": "אתה",
+        }
+    elif leader_gender == "feminine":
+        g = {
+            "at": "את",
+        }
+    else:
+        g = _g(leader)
+    return (
+        f"רק מעדכן ש{g['at']} שואל שאלה טובה 😊\n"
+        "אני בודק את החומרים כדי להביא תשובה מדויקת,\n"
+        "זה יכול לקחת עוד כמה שניות."
     )
 
 
