@@ -730,7 +730,7 @@ class JimmyHandler:
             if content:
                 context_chunks.append(f"Selected page title: {title}\n\n{content}")
                 resolved_id = resolved_id_by_id.get(page_id, page_id)
-                source_pages.append(f"{title} ({resolved_id})")
+                source_pages.append(title)
                 source_urls.append(_notion_page_url(resolved_id))
 
         if not context_chunks:
@@ -1499,9 +1499,9 @@ class JimmyHandler:
                     f"Selected page title: {title}\n\n{content}"
                 )
                 resolved_id = resolved_id_by_id.get(page_id, page_id)
-                source_pages.append(f"{title} ({resolved_id})")
-                direct_url = (page.get("source_url", "") or "").strip() or _notion_page_url(
-                    resolved_id
+                source_pages.append(title)
+                direct_url = _ensure_notion_url(
+                    (page.get("source_url", "") or "").strip() or resolved_id
                 )
                 source_urls.append(direct_url)
                 if len(content.strip()) < 280:
@@ -1705,9 +1705,9 @@ class JimmyHandler:
             if content:
                 context_chunks.append(f"Selected page title: {title}\n\n{content}")
                 resolved_id = resolved_id_by_id.get(page_id, page_id)
-                source_pages.append(f"{title} ({resolved_id})")
-                direct_url = (page.get("source_url", "") or "").strip() or _notion_page_url(
-                    resolved_id
+                source_pages.append(title)
+                direct_url = _ensure_notion_url(
+                    (page.get("source_url", "") or "").strip() or resolved_id
                 )
                 source_urls.append(direct_url)
                 if len(content.strip()) < 280:
@@ -1838,6 +1838,13 @@ def _format_whatsapp_markup(text: str) -> str:
 def _notion_page_url(page_id: str) -> str:
     clean = page_id.replace("-", "")
     return f"https://www.notion.so/{clean}"
+
+
+def _ensure_notion_url(raw: str) -> str:
+    """Convert a raw page/database ID to a full Notion URL if needed."""
+    if raw.startswith("http"):
+        return raw
+    return _notion_page_url(raw)
 
 
 def _dedupe_list(values: list[str]) -> list[str]:
