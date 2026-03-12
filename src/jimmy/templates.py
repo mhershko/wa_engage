@@ -171,17 +171,13 @@ def long_processing_notice(
     leader: LeaderRecord, leader_gender: str | None = None
 ) -> str:
     if leader_gender == "masculine":
-        g = {
-            "at": "אתה",
-        }
+        g = {"at": "אתה", "shoel": "שואל"}
     elif leader_gender == "feminine":
-        g = {
-            "at": "את",
-        }
+        g = {"at": "את", "shoel": "שואלת"}
     else:
         g = _g(leader)
     return (
-        f"רק מעדכן ש{g['at']} שואל שאלה טובה 😊\n"
+        f"רק מעדכן ש{g['at']} {g['shoel']} שאלה טובה 😊\n"
         "אני בודק את החומרים כדי להביא תשובה מדויקת,\n"
         "זה יכול לקחת עוד כמה שניות."
     )
