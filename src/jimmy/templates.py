@@ -7,6 +7,7 @@ Templates use gendered forms for addressing the leader based on their gender.
 
 from __future__ import annotations
 
+import random
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -171,16 +172,35 @@ def long_processing_notice(
     leader: LeaderRecord, leader_gender: str | None = None
 ) -> str:
     if leader_gender == "masculine":
-        g = {"at": "אתה", "shoel": "שואל"}
+        g = {"at": "אתה", "shoel": "שואל", "ten": "תן", "natata": "נתת"}
     elif leader_gender == "feminine":
-        g = {"at": "את", "shoel": "שואלת"}
+        g = {"at": "את", "shoel": "שואלת", "ten": "תני", "natata": "נתת"}
     else:
-        g = _g(leader)
-    return (
-        f"רק מעדכן ש{g['at']} {g['shoel']} שאלה טובה 😊\n"
-        "אני בודק את החומרים כדי להביא תשובה מדויקת,\n"
-        "זה יכול לקחת עוד כמה שניות."
-    )
+        ge = _g(leader)
+        g = {**ge, "ten": "תן/י", "natata": "נתת"}
+
+    variants = [
+        (
+            f"רק מעדכן ש{g['at']} {g['shoel']} שאלה טובה 😊\n"
+            "אני בודק את החומרים כדי להביא תשובה מדויקת,\n"
+            "זה יכול לקחת עוד כמה שניות."
+        ),
+        (
+            f"שאלה מעולה! {g['ten']} לי רגע לבדוק 🔍\n"
+            "עוד כמה שניות ויש לי תשובה."
+        ),
+        (
+            "בודק עכשיו, עוד רגע קט חוזר עם תשובה 🙂"
+        ),
+        (
+            f"שאלה טובה 👍 רגע בודק ומחזיר תשובה מדויקת."
+        ),
+        (
+            f"{g['natata']} לי מה לחשוב 😄\n"
+            "עוד רגע אחזור עם תשובה."
+        ),
+    ]
+    return random.choice(variants)
 
 
 TEMPLATE_RESPONSE = "הנה טיוטה שאפשר לשלוח בקבוצה:\n\n{template_text}"

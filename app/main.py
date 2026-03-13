@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI):
     knowledge_scheduler: KnowledgeIndexScheduler | None = None
     if settings.voyage_api_key and settings.notion_guides_db_id:
         async def _fetch_guide_docs() -> list[dict[str, str]]:
-            return await notion.get_all_guide_documents(settings.notion_guides_db_id)
+            return await notion.get_all_guide_documents_with_images(settings.notion_guides_db_id)
 
         asyncio.create_task(
             reindex_if_needed(async_session, _fetch_guide_docs, settings.voyage_api_key)

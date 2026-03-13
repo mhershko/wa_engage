@@ -62,7 +62,7 @@ class JimmyHandler:
         self._notion = notion
         self._brain = brain
         self._knowledge_scheduler = knowledge_scheduler
-        self._slow_response_notice_after_sec = 10
+        self._slow_response_notice_after_sec = 30
 
     # ------------------------------------------------------------------
     # Public entry points
@@ -354,7 +354,10 @@ class JimmyHandler:
             return
 
         await self._clear_clarification_state(sender_key)
-        await self._send_dm(sender_jid, result.response)
+        final_response = _append_source_links(
+            result.response, result.source_titles, result.source_page_ids
+        )
+        await self._send_dm(sender_jid, final_response)
         review_id: str | None = None
         if is_debug or result.should_escalate:
             review_id = await self._create_answer_review(
@@ -1866,6 +1869,34 @@ def _ensure_notion_url(raw: str) -> str:
     if raw.startswith("http"):
         return raw
     return _notion_page_url(raw)
+
+
+_LONG_ANSWER_THRESHOLD = 200
+
+
+def _append_source_links(
+    response: str,
+    source_titles: list[str] | None,
+    source_page_ids: list[str] | None,
+) -> str:
+    """Append Notion page links at the end of long answers."""
+    if not source_titles or not source_page_ids:
+        return response
+    if len(response) < _LONG_ANSWER_THRESHOLD:
+        return response
+
+    seen: set[str] = set()
+    links: list[str] = []
+    for title, page_id in zip(source_titles, source_page_ids, strict=False):
+        if page_id in seen:
+            continue
+        seen.add(page_id)
+        url = _notion_page_url(page_id)
+        links.append(f"- {title}: {url}")
+
+    if not links:
+        return response
+    return response + "\n\n📎 *מקורות:*\n" + "\n".join(links)
 
 
 def _dedupe_list(values: list[str]) -> list[str]:

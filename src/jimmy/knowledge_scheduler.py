@@ -69,7 +69,7 @@ class KnowledgeIndexScheduler:
         """Run a full re-index. Called by scheduler or manually via admin command."""
         logger.info("Starting scheduled knowledge re-index...")
         try:
-            docs = await self._notion.get_all_guide_documents(
+            docs = await self._notion.get_all_guide_documents_with_images(
                 self._settings.notion_guides_db_id
             )
             count = await index_pages(

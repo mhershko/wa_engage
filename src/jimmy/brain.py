@@ -74,6 +74,12 @@ If asked about those topics, warmly decline and suggest asking in the leaders gr
   - If intent is GREETING: a short friendly greeting is good.
   - If intent is NOT GREETING: do NOT open with "היי", "שלום", or similar greeting phrases.
 
+Important context: when a leader uses "אני" (I/me) in their question, they are \
+always referring to themselves as a group leader in the TechGym program. \
+For example "האם אני חייבת להעביר הרצאה?" means "Am I required, as a leader, to \
+facilitate a lecture in my group?". Always interpret questions in the context of \
+the leader's role in the program.
+
 About the leader you're talking to:
 - Name: {leader_name}
 - Gender: {leader_gender}
@@ -120,14 +126,18 @@ Rules:
 """
 
 GROUNDING_VALIDATION_SYSTEM_PROMPT = """\
-You are a strict grounding validator.
-Decide if the assistant answer is fully supported by the provided knowledge context.
+You are a grounding validator.
+Decide if the assistant answer is reasonably supported by the provided knowledge context.
 
 Rules:
 - Return ONLY one token: grounded OR not_grounded.
-- Return not_grounded if the answer includes details not present in context.
+- Return grounded if the answer's key claims can be inferred from or are consistent \
+with the context, even if the answer paraphrases or summarizes.
+- Return not_grounded only if the answer makes specific factual claims that clearly \
+contradict the context, or invents concrete details (dates, rules, URLs) not in context.
 - Return not_grounded if the answer recommends a different platform/process than context.
-- Return grounded only when the key claims are directly supported by context.
+- If the context covers the topic and the answer is a reasonable interpretation, \
+return grounded.
 """
 
 PURPOSE_GENERATION_SYSTEM_PROMPT = """\
@@ -160,6 +170,8 @@ class ConversationResult:
     is_grounded: bool | None = None
     source_count: int = 0
     uncertainty_reason: str | None = None
+    source_titles: list[str] | None = None
+    source_page_ids: list[str] | None = None
 
 
 @dataclass
@@ -168,6 +180,7 @@ class KnowledgeContextResult:
     source_titles: list[str]
     has_source_conflict: bool = False
     from_rag: bool = False
+    source_page_ids: list[str] | None = None
 
 
 class JimmyBrain:
@@ -283,6 +296,7 @@ class JimmyBrain:
         response_started = time.perf_counter()
         context_section = ""
         context_sources: list[str] = []
+        context_page_ids: list[str] | None = None
         context_from_rag = False
         should_escalate = False
         uncertainty_reason: str | None = None
@@ -312,6 +326,7 @@ class JimmyBrain:
             context = context_result.context_text
             context_sources = context_result.source_titles
             context_from_rag = context_result.from_rag
+            context_page_ids = context_result.source_page_ids
             if context_result.has_source_conflict:
                 return ConversationResult(
                     response=(
@@ -502,6 +517,8 @@ class JimmyBrain:
             is_grounded=is_grounded,
             source_count=len(context_sources),
             uncertainty_reason=uncertainty_reason,
+            source_titles=context_sources or None,
+            source_page_ids=context_page_ids,
         )
         self._log_latency(
             "respond_total",
@@ -692,15 +709,21 @@ class JimmyBrain:
                 source_titles.append(f"faq:{entry.question[:80]}")
 
         used_rag = False
+        source_page_ids: list[str] = []
         if rag_chunks:
             # RAG path: use pre-retrieved semantic chunks.
             seen_titles: set[str] = set()
+            seen_page_ids: set[str] = set()
             for chunk in rag_chunks:
                 context_parts.append(chunk["chunk_text"])
                 title = chunk.get("page_title", "guide")
+                page_id = chunk.get("notion_page_id", "")
                 if title not in seen_titles:
                     source_titles.append(title)
                     seen_titles.add(title)
+                if page_id and page_id not in seen_page_ids:
+                    source_page_ids.append(page_id)
+                    seen_page_ids.add(page_id)
             used_rag = True
             logger.info("RAG path: using %d pre-retrieved chunks", len(rag_chunks))
 
@@ -772,11 +795,13 @@ class JimmyBrain:
                 source_titles=[title for title, _ in reduced_pairs],
                 has_source_conflict=True,
                 from_rag=used_rag,
+                source_page_ids=source_page_ids or None,
             )
         return KnowledgeContextResult(
             context_text="\n---\n".join(content for _, content in reduced_pairs),
             source_titles=_dedupe_strings([title for title, _ in reduced_pairs]),
             from_rag=used_rag,
+            source_page_ids=source_page_ids or None,
         )
 
     async def _validate_answer_grounding(

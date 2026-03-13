@@ -447,21 +447,30 @@ class NotionClient:
         resp.raise_for_status()
         return resp.json().get("results", [])
 
-    async def get_page_content(self, page_id: str) -> str:
+    async def get_page_content(
+        self, page_id: str, *, extract_images: bool = False
+    ) -> str:
         """Retrieve block text recursively (including captions and child databases).
 
         Falls back to querying the ID as a database if the blocks API fails
         (e.g. when the ID points to a Notion database rather than a page).
+
+        Set *extract_images* to True during indexing to run Claude Vision on
+        image blocks.  Leave False for normal question-answering flows.
         """
         try:
-            content = await self._collect_block_texts(_format_uuid(page_id))
+            content = await self._collect_block_texts(
+                _format_uuid(page_id), extract_images=extract_images
+            )
         except httpx.HTTPStatusError:
             content = ""
         if not content:
             content = await self._get_database_as_text(page_id)
         return content
 
-    async def _collect_block_texts(self, block_id: str) -> str:
+    async def _collect_block_texts(
+        self, block_id: str, *, extract_images: bool = False
+    ) -> str:
         chunks: list[str] = []
         has_more = True
         start_cursor: str | None = None
@@ -491,7 +500,7 @@ class NotionClient:
                     row_text = " | ".join(c for c in row_cells if c)
                     if row_text:
                         chunks.append(row_text)
-                if btype == "image":
+                if btype == "image" and extract_images:
                     image_url = _extract_image_url(block_data)
                     if image_url:
                         description = await self._describe_image(image_url)
@@ -502,7 +511,9 @@ class NotionClient:
                     if db_content:
                         chunks.append(db_content)
                 elif block.get("has_children"):
-                    nested = await self._collect_block_texts(block.get("id", ""))
+                    nested = await self._collect_block_texts(
+                        block.get("id", ""), extract_images=extract_images
+                    )
                     if nested:
                         chunks.append(nested)
             has_more = data.get("has_more", False)
@@ -912,6 +923,31 @@ class NotionClient:
         async with self._cache_lock:
             self._guide_docs_cache[db_id] = docs
         return docs
+
+    async def get_all_guide_documents_with_images(
+        self, db_id: str
+    ) -> list[dict[str, str]]:
+        """Like get_all_guide_documents but runs Claude Vision on image blocks.
+
+        Intended for RAG indexing only (slow but thorough).
+        """
+        docs = await self.get_all_guide_documents(db_id)
+        enriched: list[dict[str, str]] = []
+        for doc in docs:
+            page_id = doc["page_id"]
+            try:
+                content = await self.get_page_content(
+                    page_id, extract_images=True
+                )
+            except Exception:
+                logger.warning("Image extraction failed for %s, using cached text", page_id)
+                content = doc["content"]
+            enriched.append({
+                "page_id": page_id,
+                "title": doc["title"],
+                "content": content or doc["content"],
+            })
+        return enriched
 
     async def _find_content_page_by_title(self, title: str) -> str:
         """Search for a standalone page by title and return its content."""
