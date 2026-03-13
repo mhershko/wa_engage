@@ -33,11 +33,23 @@ def get_session_factory(request: Request):
     return getattr(request.app.state, "async_session", None)
 
 
+def get_knowledge_scheduler(request: Request):
+    return getattr(request.app.state, "knowledge_scheduler", None)
+
+
 async def get_handler(
     session: Annotated[AsyncSession, Depends(get_db_async_session)],
     whatsapp: Annotated[WhatsAppClient, Depends(get_whatsapp)],
     settings: Annotated[Settings, Depends(get_settings)],
     notion: Annotated[NotionClient | None, Depends(get_notion)],
     session_factory: Annotated[object, Depends(get_session_factory)] = None,
+    knowledge_scheduler: Annotated[object, Depends(get_knowledge_scheduler)] = None,
 ) -> MessageHandler:
-    return MessageHandler(session, whatsapp, settings, notion, session_factory=session_factory)
+    return MessageHandler(
+        session,
+        whatsapp,
+        settings,
+        notion,
+        session_factory=session_factory,
+        knowledge_scheduler=knowledge_scheduler,
+    )

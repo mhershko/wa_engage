@@ -367,8 +367,25 @@ def _build_leader_record(
     )
 
 
+def _extract_image_url(block_data: dict[str, Any]) -> str:
+    """Extract downloadable URL from a Notion image block."""
+    for source_key in ("file", "external"):
+        source = block_data.get(source_key, {})
+        url = source.get("url", "")
+        if url:
+            return url
+    return ""
+
+
+_IMAGE_EXTRACT_PROMPT = (
+    "Extract ALL text and information visible in this image. "
+    "Write the result in Hebrew. If the image contains a table or schedule, "
+    "reproduce its content as structured text. Be concise but complete."
+)
+
+
 class NotionClient:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, anthropic_api_key: str = ""):
         self._client = httpx.AsyncClient(
             base_url=NOTION_BASE_URL,
             headers={
@@ -378,14 +395,16 @@ class NotionClient:
             },
             timeout=httpx.Timeout(30.0),
         )
+        self._anthropic_api_key = anthropic_api_key
         self._http_semaphore = asyncio.Semaphore(8)
         self._content_semaphore = asyncio.Semaphore(5)
+        self._vision_semaphore = asyncio.Semaphore(3)
         self._cache_lock = asyncio.Lock()
         self._guide_pages_cache: TTLCache[str, list[dict[str, str]]] = TTLCache(
-            maxsize=16, ttl=600
+            maxsize=16, ttl=3600
         )
         self._guide_docs_cache: TTLCache[str, list[dict[str, str]]] = TTLCache(
-            maxsize=8, ttl=600
+            maxsize=8, ttl=3600
         )
         self._faq_cache: TTLCache[str, list[FAQEntry]] = TTLCache(
             maxsize=16, ttl=300
@@ -472,6 +491,12 @@ class NotionClient:
                     row_text = " | ".join(c for c in row_cells if c)
                     if row_text:
                         chunks.append(row_text)
+                if btype == "image":
+                    image_url = _extract_image_url(block_data)
+                    if image_url:
+                        description = await self._describe_image(image_url)
+                        if description:
+                            chunks.append(description)
                 if btype == "child_database":
                     db_content = await self._get_database_as_text(block["id"])
                     if db_content:
@@ -513,6 +538,62 @@ class NotionClient:
                 rows.append(" | ".join(parts))
 
         return "\n".join(rows)
+
+    async def _describe_image(self, image_url: str) -> str:
+        """Use Claude Vision to extract text/info from an image."""
+        if not self._anthropic_api_key:
+            return ""
+        async with self._vision_semaphore:
+            try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    resp = await client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": self._anthropic_api_key,
+                            "anthropic-version": "2023-06-01",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": "claude-sonnet-4-5-20250929",
+                            "max_tokens": 1024,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "image",
+                                            "source": {
+                                                "type": "url",
+                                                "url": image_url,
+                                            },
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": _IMAGE_EXTRACT_PROMPT,
+                                        },
+                                    ],
+                                }
+                            ],
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    text_parts = [
+                        block.get("text", "")
+                        for block in data.get("content", [])
+                        if block.get("type") == "text"
+                    ]
+                    result = "\n".join(text_parts).strip()
+                    if result:
+                        logger.info(
+                            "Image described: %s (%d chars)",
+                            image_url[:80],
+                            len(result),
+                        )
+                    return result
+            except Exception:
+                logger.warning("Failed to describe image: %s", image_url[:80], exc_info=True)
+                return ""
 
     # ------------------------------------------------------------------
     # Domain-specific queries

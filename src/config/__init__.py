@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     notion_faq_db_id: str = ""
     notion_guides_db_id: str = ""
 
+    # Embedding settings (Voyage AI)
+    voyage_api_key: str = ""
+
     # Admin WhatsApp group for escalations and commands
     admin_whatsapp_group_id: str = ""
 

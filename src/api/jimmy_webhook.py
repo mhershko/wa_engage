@@ -9,7 +9,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from api.deps import get_db_async_session, get_whatsapp, get_notion, get_session_factory
+from api.deps import get_db_async_session, get_whatsapp, get_notion, get_session_factory, get_knowledge_scheduler
 from config import Settings, get_settings
 from jimmy.brain import JimmyBrain
 from jimmy.handler import JimmyHandler
@@ -34,6 +34,7 @@ async def group_add(
     settings: Annotated[Settings, Depends(get_settings)],
     notion: Annotated[NotionClient | None, Depends(get_notion)],
     session_factory: Annotated[object, Depends(get_session_factory)] = None,
+    knowledge_scheduler: Annotated[object, Depends(get_knowledge_scheduler)] = None,
 ) -> str:
     """Handle the bot being added to a new WhatsApp group."""
     if not notion:
@@ -46,6 +47,7 @@ async def group_add(
         settings=settings,
         notion=notion,
         brain=brain,
+        knowledge_scheduler=knowledge_scheduler,
     )
     await jimmy.handle_group_add(
         group_jid=event.group_jid,

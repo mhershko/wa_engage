@@ -15,6 +15,7 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from cachetools import TTLCache
 from sqlmodel import select
@@ -53,13 +54,15 @@ class JimmyHandler:
         settings: Settings,
         notion: NotionClient,
         brain: JimmyBrain,
+        knowledge_scheduler: Any | None = None,
     ):
         self._session = session
         self._wa = whatsapp
         self._settings = settings
         self._notion = notion
         self._brain = brain
-        self._slow_response_notice_after_sec = 25
+        self._knowledge_scheduler = knowledge_scheduler
+        self._slow_response_notice_after_sec = 10
 
     # ------------------------------------------------------------------
     # Public entry points
@@ -176,13 +179,16 @@ class JimmyHandler:
             return
 
         classify_started = time.perf_counter()
-        classification = await self._brain.classify_intent(message_text)
+        classify_task = asyncio.create_task(self._brain.classify_intent(message_text))
+        rag_task = asyncio.create_task(self._brain.retrieve_chunks(message_text))
+        classification, rag_chunks = await asyncio.gather(classify_task, rag_task)
         logger.info(
             "jimmy_timing %s",
             {
                 "stage": "handler_classify",
                 "latency_ms": round((time.perf_counter() - classify_started) * 1000, 2),
                 "intent": classification.intent.value,
+                "rag_chunks": len(rag_chunks),
             },
         )
         clarification_allowed = await self._clarification_allowed(sender_key)
@@ -204,6 +210,7 @@ class JimmyHandler:
                 event_type=classification.event_type,
                 clarification_allowed=clarification_allowed,
                 local_corrections=local_corrections,
+                rag_chunks=rag_chunks or None,
             )
         )
 
@@ -982,10 +989,24 @@ class JimmyHandler:
                 size = len(result) if hasattr(result, "__len__") else 0
                 lines.append(f"- {name}: תקין ({size} רשומות)")
 
+        # Trigger RAG re-indexing in background
+        if self._knowledge_scheduler:
+            lines.append("מאנדקס מחדש את chunks לחיפוש סמנטי...")
+            asyncio.create_task(self._reindex_knowledge())
+
         elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
         lines.append(f"זמן כולל: {elapsed_ms}ms")
         lines.append("לרענון תיאורי עמודים: /refresh_purposes")
         await self._send_to_admin_group("\n".join(lines))
+
+    async def _reindex_knowledge(self) -> None:
+        """Background task to re-index knowledge chunks after Notion refresh."""
+        try:
+            count = await self._knowledge_scheduler.run_index()
+            await self._send_to_admin_group(f"אינדוקס סמנטי הושלם: {count} chunks")
+        except Exception:
+            logger.exception("Knowledge re-index failed")
+            await self._send_to_admin_group("שגיאה באינדוקס סמנטי")
 
     async def _cmd_clear_local_cache(self, question_filter: str | None = None) -> None:
         """Clear runtime caches and archive local corrected-memory rows."""

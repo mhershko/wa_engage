@@ -11,6 +11,8 @@ import logfire
 from api import status, webhook, jimmy_webhook
 import models  # noqa
 from config import get_settings
+from jimmy.knowledge_indexer import reindex_if_needed
+from jimmy.knowledge_scheduler import KnowledgeIndexScheduler
 from jimmy.notion_client import NotionClient
 from jimmy.reminders import ReminderScheduler
 from whatsapp import WhatsAppClient
@@ -58,7 +60,10 @@ async def lifespan(app: FastAPI):
 
     # --- Jimmy bot initialization ---
     reminder_scheduler: ReminderScheduler | None = None
-    notion = NotionClient(api_key=settings.notion_api_key)
+    notion = NotionClient(
+        api_key=settings.notion_api_key,
+        anthropic_api_key=settings.anthropic_api_key,
+    )
     app.state.notion_client = notion
 
     reminder_scheduler = ReminderScheduler(
@@ -69,9 +74,28 @@ async def lifespan(app: FastAPI):
     )
     reminder_scheduler.start()
 
+    # --- RAG: index knowledge chunks on startup if table is empty ---
+    knowledge_scheduler: KnowledgeIndexScheduler | None = None
+    if settings.voyage_api_key and settings.notion_guides_db_id:
+        async def _fetch_guide_docs() -> list[dict[str, str]]:
+            return await notion.get_all_guide_documents(settings.notion_guides_db_id)
+
+        asyncio.create_task(
+            reindex_if_needed(async_session, _fetch_guide_docs, settings.voyage_api_key)
+        )
+        knowledge_scheduler = KnowledgeIndexScheduler(
+            settings=settings,
+            notion=notion,
+            session_factory=async_session,
+        )
+        knowledge_scheduler.start()
+    app.state.knowledge_scheduler = knowledge_scheduler
+
     try:
         yield
     finally:
+        if knowledge_scheduler:
+            await knowledge_scheduler.stop()
         if reminder_scheduler:
             await reminder_scheduler.stop()
         if app.state.notion_client:

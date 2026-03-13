@@ -31,10 +31,12 @@ class MessageHandler(BaseHandler):
         settings: Settings,
         notion: NotionClient | None = None,
         session_factory: Any | None = None,
+        knowledge_scheduler: Any | None = None,
     ):
         self.settings = settings
         self._notion = notion
         self._session_factory = session_factory
+        self._knowledge_scheduler = knowledge_scheduler
         super().__init__(session, whatsapp)
 
     async def __call__(self, payload: WhatsAppWebhookPayload):
@@ -87,6 +89,7 @@ class MessageHandler(BaseHandler):
             settings=self.settings,
             notion=self._notion,
             brain=brain,
+            knowledge_scheduler=self._knowledge_scheduler,
         )
 
     async def _handle_jimmy_dm(self, message: Message) -> None:

@@ -16,8 +16,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from pydantic_ai import Agent
+from sqlalchemy import text as sa_text
 
 from config import Settings
+from jimmy.embeddings import embed_query
 from jimmy.notion_client import NotionClient
 
 logger = logging.getLogger(__name__)
@@ -165,6 +167,7 @@ class KnowledgeContextResult:
     context_text: str
     source_titles: list[str]
     has_source_conflict: bool = False
+    from_rag: bool = False
 
 
 class JimmyBrain:
@@ -177,6 +180,46 @@ class JimmyBrain:
         self._settings = settings
         self._notion = notion
         self._session_factory = session_factory
+
+    async def retrieve_chunks(
+        self, question: str, top_k: int = 8
+    ) -> list[dict[str, str]]:
+        """Retrieve the most relevant knowledge chunks via pgvector cosine similarity."""
+        if not self._session_factory or not self._settings.voyage_api_key:
+            return []
+        try:
+            started = time.perf_counter()
+            query_embedding = await embed_query(
+                question, self._settings.voyage_api_key
+            )
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    sa_text(
+                        "SELECT chunk_text, page_title, notion_page_id "
+                        "FROM knowledge_chunk "
+                        "ORDER BY embedding <=> :emb "
+                        "LIMIT :k"
+                    ),
+                    {"emb": str(query_embedding), "k": top_k},
+                )
+                rows = result.fetchall()
+            chunks = [
+                {
+                    "chunk_text": row[0],
+                    "page_title": row[1],
+                    "notion_page_id": row[2],
+                }
+                for row in rows
+            ]
+            self._log_latency(
+                "rag_retrieval",
+                started,
+                {"chunks_found": len(chunks), "top_k": top_k},
+            )
+            return chunks
+        except Exception:
+            logger.exception("RAG retrieval failed, falling back to legacy flow")
+            return []
 
     async def classify_intent(self, message_text: str) -> ClassificationResult:
         started = time.perf_counter()
@@ -234,11 +277,13 @@ class JimmyBrain:
         clarification_allowed: bool = True,
         forced_context: str | None = None,
         local_corrections: list[dict[str, str]] | None = None,
+        rag_chunks: list[dict[str, str]] | None = None,
     ) -> ConversationResult:
         """Generate a natural conversational response, fetching Notion context when needed."""
         response_started = time.perf_counter()
         context_section = ""
         context_sources: list[str] = []
+        context_from_rag = False
         should_escalate = False
         uncertainty_reason: str | None = None
         is_knowledge_intent = intent in (
@@ -260,10 +305,13 @@ class JimmyBrain:
         elif is_knowledge_intent:
             context_started = time.perf_counter()
             context_result = await self._fetch_knowledge_context(
-                message_text, local_corrections=local_corrections
+                message_text,
+                local_corrections=local_corrections,
+                rag_chunks=rag_chunks,
             )
             context = context_result.context_text
             context_sources = context_result.source_titles
+            context_from_rag = context_result.from_rag
             if context_result.has_source_conflict:
                 return ConversationResult(
                     response=(
@@ -370,7 +418,10 @@ class JimmyBrain:
         needs_grounding_check = bool(
             context_section
             and is_knowledge_intent
+            and not context_from_rag
         )
+        if context_from_rag and context_section:
+            is_grounded = True
         if needs_grounding_check:
             grounded_started = time.perf_counter()
             is_grounded = await self._validate_answer_grounding(
@@ -475,6 +526,7 @@ class JimmyBrain:
         self,
         question: str,
         local_corrections: list[dict[str, str]] | None = None,
+        rag_chunks: list[dict[str, str]] | None = None,
     ) -> KnowledgeContextResult:
         """Fetch relevant content from FAQ and Guides databases."""
         context_parts: list[str] = []
@@ -639,7 +691,21 @@ class JimmyBrain:
                 context_parts.append(f"FAQ: {entry.question}\n{entry.answer}")
                 source_titles.append(f"faq:{entry.question[:80]}")
 
-        if all_docs:
+        used_rag = False
+        if rag_chunks:
+            # RAG path: use pre-retrieved semantic chunks.
+            seen_titles: set[str] = set()
+            for chunk in rag_chunks:
+                context_parts.append(chunk["chunk_text"])
+                title = chunk.get("page_title", "guide")
+                if title not in seen_titles:
+                    source_titles.append(title)
+                    seen_titles.add(title)
+            used_rag = True
+            logger.info("RAG path: using %d pre-retrieved chunks", len(rag_chunks))
+
+        if not used_rag and all_docs:
+            # Legacy path: LLM page selection + keyword fallback.
             all_guides = [
                 {"title": d["title"], "page_id": d["page_id"]}
                 for d in all_docs
@@ -662,7 +728,6 @@ class JimmyBrain:
                 context_parts.append(doc["content"][:2000])
                 source_titles.append(doc.get("title", "guide"))
 
-            # Fallback recall pass: keyword match against full guide content.
             scored_docs: list[tuple[int, dict[str, str]]] = []
             for doc in all_docs:
                 if doc["page_id"] in included_page_ids:
@@ -670,8 +735,6 @@ class JimmyBrain:
                 haystack = _normalize_for_match(f"{doc['title']} {doc['content']}")
                 score = sum(1 for kw in keywords if kw.lower() in haystack)
                 if has_registration_selection_intent:
-                    # Hard boost for registration/selection docs to avoid drifting
-                    # into facilitation-ish pages for administrative filtering questions.
                     score += sum(
                         2
                         for marker in (
@@ -696,19 +759,24 @@ class JimmyBrain:
                 source_titles.append(doc.get("title", "guide"))
 
         source_pairs = list(zip(source_titles, context_parts, strict=False))
-        reduced_pairs = _reduce_source_pairs_for_answer(
-            question=question,
-            source_pairs=source_pairs,
-        )
+        if not used_rag:
+            reduced_pairs = _reduce_source_pairs_for_answer(
+                question=question,
+                source_pairs=source_pairs,
+            )
+        else:
+            reduced_pairs = source_pairs
         if _has_source_conflict(normalized_question, reduced_pairs):
             return KnowledgeContextResult(
                 context_text="",
                 source_titles=[title for title, _ in reduced_pairs],
                 has_source_conflict=True,
+                from_rag=used_rag,
             )
         return KnowledgeContextResult(
             context_text="\n---\n".join(content for _, content in reduced_pairs),
             source_titles=_dedupe_strings([title for title, _ in reduced_pairs]),
+            from_rag=used_rag,
         )
 
     async def _validate_answer_grounding(
