@@ -325,27 +325,12 @@ class JimmyHandler:
                     flow_mode="clarification",
                     uncertainty_reason=result.uncertainty_reason,
                 )
-            await self._send_to_admin_group(
-                "\n".join(
-                    [
-                        T.ADMIN_ESCALATION_LOGISTICS.format(
-                            movil="מוביל" if leader_gender == "masculine" else "מובילה",
-                            leader_name=leader.name,
-                            leader_group=leader.group_name or "—",
-                            leader_phone=leader.phone,
-                            original_question=message_text,
-                            intent_type=f"{result.intent.value}_CLARIFICATION",
-                        ),
-                        "",
-                        f"Review ID: {review_id}",
-                        "תשובת ג׳ימי:",
-                        bot_answer,
-                        "לאישור: /review_ok <review_id>",
-                        "לתיקון טיוטה: /review_fix <review_id> <תשובה מתוקנת>",
-                        "לתיקון לפי עמוד/ים: /review_fix_page <review_id> <page refs>",
-                        "לשליחת טיוטה: /review_send <review_id>",
-                    ]
-                )
+            await self._send_escalation_to_admin(
+                leader=leader,
+                question=message_text,
+                bot_answer=bot_answer,
+                intent_type=f"{result.intent.value}_CLARIFICATION",
+                review_id=review_id,
             )
             await self._store_escalation(
                 leader, message_text, f"{result.intent.value}_CLARIFICATION"
@@ -383,27 +368,12 @@ class JimmyHandler:
             )
 
         if result.should_escalate:
-            await self._send_to_admin_group(
-                "\n".join(
-                    [
-                        T.ADMIN_ESCALATION_LOGISTICS.format(
-                            movil="מוביל" if leader_gender == "masculine" else "מובילה",
-                            leader_name=leader.name,
-                            leader_group=leader.group_name or "—",
-                            leader_phone=leader.phone,
-                            original_question=message_text,
-                            intent_type=result.intent.value,
-                        ),
-                        "",
-                        f"Review ID: {review_id or '—'}",
-                        "תשובת ג׳ימי:",
-                        result.response,
-                        "לאישור: /review_ok <review_id>",
-                        "לתיקון טיוטה: /review_fix <review_id> <תשובה מתוקנת>",
-                        "לתיקון לפי עמוד/ים: /review_fix_page <review_id> <page refs>",
-                        "לשליחת טיוטה: /review_send <review_id>",
-                    ]
-                )
+            await self._send_escalation_to_admin(
+                leader=leader,
+                question=message_text,
+                bot_answer=result.response,
+                intent_type=result.intent.value,
+                review_id=review_id,
             )
             await self._store_escalation(
                 leader, message_text, result.intent.value
@@ -772,10 +742,12 @@ class JimmyHandler:
         )
 
         await self._send_to_admin_group(
-            "נוצרה תשובה מתוקנת לפי עמודי Notion שנבחרו.\n"
-            f"Review: {review.review_id}\n"
-            f"עמודים: {', '.join(source_pages)}\n"
-            "כעת נוצרה טיוטת תיקון. נדרש /review_send כדי לשלוח למוביל/ה."
+            "\n".join([
+                f"✅ *נוצרה תשובה מתוקנת*  ·  Review {review.review_id}",
+                f"📄 עמודים: {', '.join(source_pages)}",
+                "",
+                f"/review_send {review.review_id}  ← שליחה למוביל/ה",
+            ])
         )
         if review.status == "corrected":
             await self._cmd_review_update(
@@ -1203,16 +1175,14 @@ class JimmyHandler:
         await self._send_to_admin_group(
             "\n".join(
                 [
-                    "⚠️ נדרש בחירת מקור לפני תשובה",
-                    f"כוונה: {intent}",
-                    f"סיבה: {reason}",
-                    f"מוביל/ה: {leader.name}",
-                    f"קבוצה: {leader.group_name or '—'}",
-                    f"טלפון: {leader.phone}",
-                    "שאלה:",
-                    question,
+                    "⚠️ *ג׳ימי לא בטוח באיזה מקור להשתמש*",
                     "",
-                    "ג׳ימי ביקש מהמנהל/ת לבחור עמוד/ים רלוונטיים מ-Notion לפני מענה.",
+                    f"👤 *{leader.name}*  ·  {leader.group_name or 'ללא קבוצה'}",
+                    "",
+                    f"❓ _{question}_",
+                    "",
+                    f"ג׳ימי ביקש מהמוביל/ה לבחור עמוד מ-Notion.",
+                    f"ℹ️ סיבה: {reason}",
                 ]
             )
         )
@@ -1295,51 +1265,88 @@ class JimmyHandler:
         uncertainty_reason: str | None = None,
     ) -> None:
         source_pages = source_pages or []
-        await self._send_to_admin_group(
-            "\n".join(
-                [
-                    "🐞 DEBUG | שאלה ותשובה",
-                    f"מוביל/ה: {leader.name}",
-                    f"קבוצה: {leader.group_name or '—'}",
-                    f"טלפון: {leader.phone}",
-                    f"אינטנט: {intent}",
-                    f"Clarification: {needs_clarification}",
-                    f"Escalate: {should_escalate}",
-                    f"Review ID: {review_id or '—'}",
-                    f"Grounded: {is_grounded if is_grounded is not None else 'n/a'}",
-                    f"Sources: {source_count if source_count is not None else 'n/a'}",
-                    f"Flow: {flow_mode or 'n/a'}",
-                    f"Uncertainty: {uncertainty_reason or 'n/a'}",
-                    (
-                        "Source Pages: " + " | ".join(source_pages)
-                        if source_pages
-                        else "Source Pages: n/a"
-                    ),
-                    "שאלה:",
-                    f"\"{question}\"",
-                    "",
-                    "תשובת ג׳ימי:",
-                    answer,
-                    "",
-                    "לאישור: /review_ok <review_id>",
-                    "לתיקון טיוטה: /review_fix <review_id> <תשובה מתוקנת>",
-                    "לתיקון לפי עמוד/ים: /review_fix_page <review_id> <page refs>",
-                    "לשליחת טיוטה: /review_send <review_id>",
-                ]
-            )
-        )
+
+        status_parts: list[str] = []
+        if is_grounded is True:
+            status_parts.append("מבוסס")
+        elif is_grounded is False:
+            status_parts.append("לא מבוסס")
+        if needs_clarification:
+            status_parts.append("נדרש הבהרה")
+        if should_escalate:
+            status_parts.append("הועבר לצוות")
+        status_line = " · ".join(status_parts) if status_parts else "תקין"
+
+        flags: list[str] = []
+        if source_count is not None and source_count > 0:
+            flags.append(f"{source_count} מקורות")
+        if source_pages:
+            flags.append("עמודים: " + ", ".join(source_pages))
+        if uncertainty_reason:
+            flags.append(f"חוסר ודאות: {uncertainty_reason}")
+
+        lines = [
+            f"👤 *{leader.name}*  ·  {leader.group_name or 'ללא קבוצה'}",
+            "",
+            f"❓ _{question}_",
+            "",
+            f"💬 {answer}",
+            "",
+            f"📊 {status_line}",
+        ]
+        if flags:
+            lines.append("ℹ️ " + "  |  ".join(flags))
+
+        if review_id:
+            lines += [
+                "",
+                f"🔖 Review *{review_id}*",
+                f"/review_ok {review_id}",
+                f"/review_fix {review_id} <תשובה>",
+                f"/review_fix_page {review_id} <עמודים>",
+            ]
+
+        await self._send_to_admin_group("\n".join(lines))
+
+    async def _send_escalation_to_admin(
+        self,
+        leader: LeaderRecord,
+        question: str,
+        bot_answer: str,
+        intent_type: str,
+        review_id: str | None = None,
+    ) -> None:
+        lines = [
+            T.ADMIN_ESCALATION_LOGISTICS.format(
+                leader_name=leader.name,
+                leader_group=leader.group_name or "ללא קבוצה",
+                original_question=question,
+                intent_type=intent_type,
+            ),
+            "",
+            f"💬 תשובת ג׳ימי: {bot_answer}",
+        ]
+        if review_id:
+            lines += [
+                "",
+                f"🔖 Review *{review_id}*",
+                f"/review_ok {review_id}",
+                f"/review_fix {review_id} <תשובה>",
+                f"/review_fix_page {review_id} <עמודים>",
+            ]
+        await self._send_to_admin_group("\n".join(lines))
 
     async def _send_correction_draft_preview(self, review: AnswerReview) -> None:
         corrected = (review.corrected_answer or "").strip()
         await self._send_to_admin_group(
             "\n".join(
                 [
-                    f"טיוטת תיקון מוכנה (Review {review.review_id}):",
+                    f"📝 *טיוטת תיקון מוכנה*  ·  Review {review.review_id}",
                     "",
                     corrected or "—",
                     "",
-                    "אם נדרש שינוי נוסף: /review_update <review_id> <text>",
-                    "לאישור שליחה למוביל/ה: /review_send <review_id>",
+                    f"/review_update {review.review_id} <טקסט חדש>",
+                    f"/review_send {review.review_id}  ← שליחה למוביל/ה",
                 ]
             )
         )
@@ -1583,15 +1590,11 @@ class JimmyHandler:
             )
 
         if result.should_escalate:
-            await self._send_to_admin_group(
-                T.ADMIN_ESCALATION_LOGISTICS.format(
-                    movil="מוביל" if leader_gender == "masculine" else "מובילה",
-                    leader_name=leader.name,
-                    leader_group=leader.group_name or "—",
-                    leader_phone=leader.phone,
-                    original_question=original_question,
-                    intent_type="ADMIN_LOGISTICS_PAGE_CHOICE",
-                )
+            await self._send_escalation_to_admin(
+                leader=leader,
+                question=original_question,
+                bot_answer=result.response,
+                intent_type="ADMIN_LOGISTICS_PAGE_CHOICE",
             )
             await self._store_escalation(
                 leader,

@@ -210,27 +210,23 @@ TEMPLATE_RESPONSE = "הנה טיוטה שאפשר לשלוח בקבוצה:\n\n{t
 # ---------------------------------------------------------------------------
 
 ADMIN_ESCALATION_LOGISTICS = (
-    "שאלה חדשה למענה:\n"
+    "🚨 *שאלה שדורשת מענה אנושי*\n"
     "\n"
-    "{movil}: {leader_name}, קבוצת {leader_group}\n"
-    "טלפון: {leader_phone}\n"
+    "👤 *{leader_name}*  ·  {leader_group}\n"
     "\n"
-    "שאלה:\n"
-    '"{original_question}"\n'
+    "❓ _{original_question}_\n"
     "\n"
-    "(סווג כ־{intent_type}, אין תשובה ב-Notion)"
+    "ג׳ימי לא הצליח לענות ({intent_type})"
 )
 
 ADMIN_ESCALATION_FACILITATION = (
-    "שאלה מחוץ לתחום האדמיניסטרציה:\n"
+    "📋 *שאלה בתחום ההנחיה*\n"
     "\n"
-    "{movil}: {leader_name}, קבוצת {leader_group}\n"
-    "טלפון: {leader_phone}\n"
+    "👤 *{leader_name}*  ·  {leader_group}\n"
     "\n"
-    "שאלה:\n"
-    '"{original_question}"\n'
+    "❓ _{original_question}_\n"
     "\n"
-    "(סווג כ־FACILITATION)"
+    "השאלה מחוץ לתחום הלוגיסטי של ג׳ימי"
 )
 
 # ---------------------------------------------------------------------------
