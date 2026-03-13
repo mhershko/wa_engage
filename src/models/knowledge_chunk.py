@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Column, Index
+from sqlalchemy import Column, DateTime, Index
 from sqlmodel import Field, SQLModel
 
 
@@ -19,6 +19,7 @@ class KnowledgeChunk(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
     )
 
     __table_args__ = (
