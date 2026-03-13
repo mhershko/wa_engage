@@ -720,8 +720,16 @@ class JimmyBrain:
     ) -> bool:
         if not context_text.strip():
             return False
-        # Quick lexical guard before expensive model call.
-        if _rough_overlap_score(answer, context_text) < 2:
+        answer_overlap = _rough_overlap_score(answer, context_text)
+        question_overlap = _rough_overlap_score(question, context_text)
+        logger.info(
+            "Grounding lexical scores: answer_overlap=%d question_overlap=%d",
+            answer_overlap,
+            question_overlap,
+        )
+        # Skip the expensive LLM call only when neither the answer nor the
+        # original question share meaningful vocabulary with the context.
+        if answer_overlap < 2 and question_overlap < 1:
             return False
 
         prompt = (
@@ -1102,10 +1110,26 @@ def _score_correction_match(question: str, row: dict[str, str]) -> int:
     return score
 
 
+_HEBREW_PREFIX_CHARS = "הבלמכשו"
+
+
+def _strip_hebrew_prefix(word: str) -> str:
+    """Strip one common Hebrew prefix (ה,ב,ל,מ,כ,ש,ו) from a word."""
+    if len(word) > 3 and word[0] in _HEBREW_PREFIX_CHARS:
+        return word[1:]
+    return word
+
+
 def _rough_overlap_score(answer: str, context_text: str) -> int:
     answer_tokens = set(_extract_keywords(answer))
     context_norm = _normalize_for_match(context_text)
-    return sum(1 for token in answer_tokens if token in context_norm)
+    score = 0
+    for token in answer_tokens:
+        if token in context_norm:
+            score += 1
+        elif _strip_hebrew_prefix(token) in context_norm:
+            score += 1
+    return score
 
 
 def _score_faq_entry(
